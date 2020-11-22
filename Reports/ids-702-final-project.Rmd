@@ -1,0 +1,472 @@
+
+---
+title: "IDS 702: An Analsis of the Sneaker Resale Market"
+author: "Nikhil Bhargava"
+date: "11/21/20"
+output:
+  pdf_document: default
+  html_document:
+    highlight: pygments
+    theme: spacelab
+---
+
+```{r setup, include=FALSE}
+# DO NOT ALTER CODE IN THIS CHUNK
+# The very first time you use this R markdown file, you should install each of the packages below.
+# The same goes for other packages you might decide to use
+# Remember that you only need to install each R package once in R (ever -- unless you change computers).
+# All you need to do whenever you need to use the package again (after restarting the R session),
+# is to use the library function to call the package.
+# For example, type install.packages("knitr") in the console to install the knitr package. 
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(knitr)
+library(dplyr)
+library(ggplot2)
+library(rms)
+library(lme4)
+library(pander)
+library(ggpubr)
+```
+
+* * *
+
+```{r}
+# Enter your code for loading the data here
+sneakers <- read.csv('data/train.csv')
+```
+
+\newpage
+### Summary
+
+### Introduction
+
+According to GQ, the sneaker resale market is values at around \$2 billion dollars, with the potential to reach $6 billion by 2025. However, the resale value of individual sneakers is left largely unknown due to the domain knowledge needed to purchase the right sneakers. Although the price of a sneaker varies over time, previous analysis done by StockX suggests that resale prices begin to plateau after a “month or two”. Therefore, to better understand the sneaker resale market, I will create a model to identify what drives higher resale prices and predict the resale value of future sneaker releases.
+
+The goal of this project is to understand what variables lead to an increase in resale values. For the purpose of this analysis, resale values will be considered as the price of a sneaker 2+ months after its initial release. A few inferential questions that I hope to answer with this project are:
+• What variable is the biggest contributor to higher resale values?
+• What is a likely range for the difference in resale values across different brands?
+• Do resale values vary across different brands and/or sub-brands? If so, are there certain
+brands/sub-brands that appear to be outliers?
+• Are there any interesting associations with sneaker resale values that are worth
+mentioning?
+Since I’ve scraped the data myself, no previous research has been done on this dataset. In the past, I’ve used a similar dataset (scraped from a different website) where I used logistic regression to predict if a sneaker will re-sell above retail price. However, for that analysis I didn’t do anything outside of fit a model (real analysis of the dataset and model were lacking).
+
+### Exploratory Data Analysis (EDA)
+
+Before beginning the analysis, the number of null values in the dataset were counted. Although there were no null values found in the predictors, there were 181 rows in the response variable missing values. This was likely due to the scraper unable to find those sneakers on StockX. Ultimately, these rows were removed instead of imputed since they accounted for less than 3% of the entire dataset and it wasn't apparent if they weren't on StockX or if they were difficult to find when searching for them. After removing those rows, the final dataset contained 6,164 unique observations and 19 rows, albeit, 5 of them being intermediate columns or text descriptions.
+
+```{r}
+# check for null values & remove them
+# colSums(is.na(sneakers))
+sneakers <- sneakers[!is.na(sneakers$resale_price),]
+```
+
+```{r}
+# format columns
+sneakers$log_resale_price <- log(sneakers$resale_price)
+sneakers$log_retail_price <- log(sneakers$retail_price)
+sneakers$brand <- factor(sneakers$brand)
+sneakers$release_month <- factor(sneakers$release_month, levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+sneakers$release_dow <- factor(sneakers$release_dow, levels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+sneakers$wmns <- as.logical(sneakers$wmns)
+sneakers$collab <- as.logical(sneakers$collab)
+sneakers$retro <- as.logical(sneakers$retro)
+sneakers$kids <- as.logical(sneakers$kids)
+sneakers$main_color <- factor(sneakers$main_color)
+```
+
+Since one of the assumptions of a linear model is normality, the distribution of the response variable was plotted as a histogram. The distribution of Resale prices were heavily skewed left, and therefore multiple transformation were performed. Ultimately, the log transformation was deemed to have the best resemblance to a normal distribution. Therefore, the log transformation of the response variable was used for the rest of the analysis.
+
+The "wants" column scraped from Kicks on Fire is akin to a like button, and therefore could be used as a proxy for public sentiment towards each sneaker. The distribution of "wants" was heavily skewed left with a wide range of values. Due to this, and since many sneakers had values of equal to zero, "wants" was binned into four groups roughly representing the quartiles of values in the "wants" columns. A sneaker with less than 50 "wants" was considered "Not Popular", greater than equal to 50 but less than 250 was "Somewhat Popular", greater than or equal to 250 and less than 1000 was "Very Popular", and greater than or equal to "1000" was "Extremely Popular". The figure on the left below visualizes the distribution of each category below.
+
+```{r fig.width=8, fig.height=4, echo=FALSE}
+# Enter your code for question 2 here
+# ggplot(data = sneakers, aes(x=wants)) + geom_histogram() + ggtitle('Distribution of Kicks on Fire wants')
+# quantile(sneakers$wants)
+sneakers$bin_wants <- ifelse(sneakers$wants<50, "Not Popular", 
+                      ifelse(sneakers$wants>=50 & sneakers$wants<250, "Somewhat Popular", 
+                      ifelse(sneakers$wants>=250 & sneakers$wants<1000,"Very Popular",
+                      ifelse(sneakers$wants>=1000, "Extremely Popular", NA))))
+sneakers$bin_wants <- factor(sneakers$bin_wants, levels = c("Not Popular", "Somewhat Popular", "Very Popular", "Extremely Popular"))
+
+fig1 <- ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sneaker Color",x="Sneaker Color",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none")
+
+fig2 <- ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Wants (Sentiment) by Collaboration",x="Wants",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none", axis.text.x = element_text(angle = 10))+
+  facet_wrap( ~ collab,ncol=2)
+
+figroup1 <- ggarrange(fig1,fig2,
+          ncol = 2, nrow = 1)
+figroup1
+```
+
+Due to our interest in finding evidence between an association between sentiment and resale values by by whether or not a sneaker was collaborated on, the plot on the right visualizes that relationship. This revealed that there does appears to be a difference in resale values among each popularity group when collaborated on versus not. Although the resale distributions for non-collaborated sneakers look similar to the overall distribution of the data set (pictured left), the distributions for sneakers that were collaborated do not. The median resale values for "Somewhat Popular" and "Very Popular" collaborated sneakers appear to be roughly the same, as compared to before. The median value and distribution of extremely popular, collab sneakers, seem to be higher than before as well.
+
+Two additional associations found while performing EDA can be seen in the plot below. The graph on the left shows the log of resale prices versus retail prices split by brand. From this chart, we can make out that some brands, such as Converse, Nike, Air Jordan, and Adidas, all appear to have strong positive correlations between the two variables. Meanwhile, some brands such as Puma and Asics, have relatively flat slopes with no correlation between the two variables. The second graph on the right depicts the log of resale prices versus sneaker color split by collaboration. The resale value medians and distributions for each colors vary a lot more sneakers for sneakers that are collaborated on versus not. In particular, the resale value distributions for brown, purple, red, and white sneakers seem to be a lot higher when collaborated on, while the distribution for gray sneakers seems to decrease. Both of these associations will be tested for statistical significance when modeling.
+
+```{r fig.width=8, fig.height=4, echo=FALSE}
+fig3 <- ggplot(sneakers,aes(x=retail_price, y=log_resale_price)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_smooth(method="lm",col="red3") + theme_classic() +
+  labs(title="log(Resale Price) vs Retail Price by Brand",x="Retail Price",y="log(Resale Price)") +
+  facet_wrap( ~ brand,ncol=4)
+
+fig4 <- ggplot(sneakers,aes(x=main_color, y=log_resale_price, fill=main_color)) +
+  geom_boxplot() + scale_fill_manual(values=c("#505050", "#4390F7", "#9D942F", "#A0A0A0", "#54B257", "#FF3EBB", "#FF9327", "#9A6BF7", "#E16860", "#FFFFF0", "#E6FF22"))+
+  labs(title="log(Resale Prices) vs Sneaker Color by Collaboration",x="Sneaker Color",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none",axis.text.x = element_text(angle = 90)) +
+  facet_wrap( ~ collab,ncol=2)
+
+figroup2 <- ggarrange(fig3,fig4,
+          ncol = 2, nrow = 1)
+figroup2
+```
+
+### Model
+
+##### Model Selection
+The final model was selecting based on our findings from the EDA, step-wise model selection, and ANOVA f-tests. When checking model diagnostic plots, it was determined that the log transformation of the retail value for each sneaker would create more randomness among the residuals in the residuals vs fitted plots and was necessary to satisfy the linearity assumption. The rest of the variables were all categorical, and therefore no other transformations to predictors were made. The final model took the form: $y_i = \beta_0 + \beta_1 Brand + \beta_2 Release Month + \beta_3 Release Day + \beta_4 Sex + \beta_5 Collab + \beta_6 Retro + \beta_7 Kids + \beta_8 Color + \beta_9 BinWants + \beta_{10} log(RetailPrice) + \beta_{11} (BinWants:Collab) + \beta_{12} (log(RetailPrice):Brand) + + \beta_{12} (Collab:Color)$
+
+The final model summary can be seen below. Since the response variable is the log of resale values, it is important to exponentiate the coefficients before interpreting the model. The table below contains the summary of the final model.
+
+The model's intercept is 15.21, which means that, if all variables are set to 0 or their respective baseline, the average resale price of a sneaker would be $15.21. The intercept is also statistically significant as its' p-value is smaller than 0.05. The adjusted r-squared value for the model is ~0.38, which means about 38% of variability in the dataset can be explained by the variables in our model.
+
+```{r}
+# model 3 & final model
+model3 <- lm(log_resale_price~brand+release_month+release_dow+wmns+collab+retro+kids+main_color+bin_wants+log_retail_price+bin_wants:collab+log_retail_price:brand+collab:main_color, data=sneakers)
+pander(summary(model3))
+```
+
+From the table above, we can determine that the log of the sneaker's retail price is the best covariate for explaining sneaker resale values. This is because predictors with higher absolute t-values indicate greater evidence against the null hypothesis and importance in predicting the response variable. The coefficient of this covariate indicates that for every additional increase in the log of the retail price, the resale value, on average, for a sneaker increases by $1.48, holding all other variables constant.
+
+For this analysis, only variables that had p-values lower than the 0.05 level were deemed to be statistically significant. Therefore, brand, release month, release day, retro, "wants" binned, log of retail price, the interaction between brand and the log of retail price, the interaction between collab and "wants" binned, and the interaction between collab and main color were all statistically significant variables.
+
+Additionally, since the interaction between collaborations and "wants" binned was statistically significant, we know that there is evidence of an association between sentiment and resale values different. For the interaction, non-collaborate sneakers and "Not Popular" were the model's baseline. The statistically significant effects of this interaction can be interpreted as, if all other variables are held constant, on average, for sneakers that were collaborated on and were "Somewhat Popular", the average resale price of a sneaker increased by $1.13 compared to the model baseline. For the same conditions, on average, sneakers that were collaborated on and were "Extremely Popular", the average resale price of a sneaker increased by $1.69 compared to the model baseline.
+
+Next, a likely range for the difference in sneaker resale values for sneakers that were non-collab and collab can be found by getting the 95% confidence interval of the collab variable in the final model, which can be seen below. Based on the 95% confidence interval for the variable collab, if all other variables are held constant, the average resale price of a collab sneaker increases by $0.96 to $1.20 compared non-collab sneakers. It is worth noting that collab was not found to be significant on its own, but was significant in its interaction between sneaker sentiment and color.
+
+```{r}
+# confidence interval at 95%
+pander(exp(confint(model3,'collabTRUE',level=0.95)))
+```
+
+##### Model Assesment
+
+The model diagnostics were the plotted below. Looking at the residuals vs. fitted plot, the model does seem to satisfy the independence and equal variance assumptions as the data points are randomly scattered throughout the plot and the red line indicating trends is straight.
+
+The Normal Q-Q plot indicates whether or not the assumption of Normality is violated by the model. Looking at the plot, the points roughly lie on the dashed line drawn, until the right most extremity. This is likely due to the long right tail of the response variable distribution. Therefore, the normality assumption does appear to be satisfied.
+
+Potential outliers, leverage points, or highly influential points can all be identified using the Residuals vs. Leverage plot below. From the Cook's distance lines, there are no highly influential data points as there are not values with a Cook's distance value greater than 0.5 or 1. This meant no data points were highly influential and did not need to be removed from our analysis. High leverage points were calculated using the formula $2*(p+1)/n$. From this threshold there were quite a few high leverage points. Outliers could also be identified from the Residuals vs. Leverage plot below by looking at the y-values of the data points in the graph. The distribution of data points appear to follow a normal distribution and can be found between 3 and -3 standard deviations. However, there are quite a few data points that are outside those metrics.
+
+```{r}
+par(mfrow=c(2,2))
+plot(model3)
+# ggplot(sneakers,aes(x=log(retail_price), y=model3$residual)) +
+# geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+# labs(title="Residuals vs Retail Price",x="Retail Price",y="Residuals")
+```
+Next, we will look at the variance inflation factor to measure how much the multicollinearity between a variable and other variables in the model inflate the variance of the regression coefficient for that variable. All of the vif scores for the variables in the model are less than 1.4 and we can safely say they're not correlated with one another.
+
+Finally, the Variance Inflation Factor (VIF) score for each variable in the model was checked to determine how much multicollinearity between the variables in the model was inflating the variance of the regression coefficient for each variable. However, since the only continuous covariate was the log of the retail price, only that VIF score was worth noting. The log of the retail price had a VIF score of 3.31, and therefore we can safely say it's not correlated with other variables.
+
+```{r}
+# check for multi collinearity
+# vif(model3)
+```
+
+### Conclusion
+
+
+### Appendix
+
+**III. EDA**
+Distributions of response variable
+```{r}
+# Enter your code for question 1 here
+ggplot(data = sneakers, aes(x=resale_price)) + geom_histogram() + ggtitle('Distribution of sneaker resale values')
+ggplot(data = sneakers, aes(x=(log(resale_price)))) + geom_histogram() + ggtitle('Log distribution of sneaker resale values')
+ggplot(data = sneakers, aes(x=(sqrt(resale_price)))) + geom_histogram() + ggtitle('Square root distribution of sneaker resale values')
+ggplot(data = sneakers, aes(x=((resale_price^2)))) + geom_histogram() + ggtitle('Square distribution of sneaker resale values')
+```
+
+Distributions of retail price
+```{r}
+ggplot(data = sneakers, aes(x=retail_price)) + geom_histogram() + ggtitle('Distribution of retail price')
+ggplot(data = sneakers, aes(x=log(retail_price))) + geom_histogram() + ggtitle('Distribution of retail price')
+```
+
+EDA for log resale vs brand
+```{r}
+# Enter your code for question 4 here
+ggplot(sneakers,aes(x=brand, y=log_resale_price, fill=brand)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Brand",x="Brand",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none")
+
+ggplot(sneakers,aes(x=brand, y=log_resale_price, fill=brand)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Brand by Release Day of Week",x="Brand",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ release_dow,ncol=3)
+
+ggplot(sneakers,aes(x=brand, y=log_resale_price, fill=brand)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Brand by Collab",x="Brand",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ collab,ncol=2)
+
+ggplot(sneakers,aes(x=brand, y=log_resale_price, fill=brand)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Brand by Sex",x="Brand",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ wmns,ncol=2)
+
+ggplot(sneakers,aes(x=brand, y=log_resale_price, fill=brand)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Brand by Kid's Shoe",x="Brand",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ kids,ncol=2)
+
+ggplot(sneakers,aes(x=brand, y=log_resale_price, fill=brand)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Brand by Retro",x="Brand",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ retro,ncol=2)
+```
+
+EDA for log resale vs main color
+```{r}
+# Enter your code for question 4 here
+ggplot(sneakers,aes(x=main_color, y=log_resale_price, fill=main_color)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sneaker Color",x="Sneaker Color",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none")
+
+ggplot(sneakers,aes(x=main_color, y=log_resale_price, fill=main_color)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sneaker Color by Collaboration",x="Sneaker Color",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ collab,ncol=2)
+
+ggplot(sneakers,aes(x=main_color, y=log_resale_price, fill=main_color)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sneaker Color by Sex",x="Sneaker Color",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ wmns,ncol=2)
+
+ggplot(sneakers,aes(x=main_color, y=log_resale_price, fill=main_color)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sneaker Color by Kid's Shoe",x="Sneaker Color",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ kids,ncol=2)
+
+ggplot(sneakers,aes(x=main_color, y=log_resale_price, fill=main_color)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sneaker Color by Retro",x="Sneaker Color",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ retro,ncol=2)
+```
+
+EDA for log resale vs release month
+```{r}
+# Enter your code for question 4 here
+ggplot(sneakers,aes(x=release_month, y=log_resale_price, fill=release_month)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Release Month",x="Release Month",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none")
+```
+
+EDA for log resale vs release day
+```{r}
+# Enter your code for question 4 here
+ggplot(sneakers,aes(x=release_dow, y=log_resale_price, fill=release_dow)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Release Day of Week",x="Release Day of Week",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none")
+
+ggplot(sneakers,aes(x=release_dow, y=log_resale_price, fill=release_dow)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Release Day of Week by Collaboration",x="Release Day of Week",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ collab,ncol=2)
+```
+
+EDA for log resale vs binned "wants"
+```{r}
+ggplot(data = sneakers, aes(x=wants)) + geom_histogram() + ggtitle('Distribution of Kicks on Fire wants')
+
+ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sentiment",x="Sentiment",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none")
+
+ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Wants (Sentiment) by Collaboration",x="Wants",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ collab,ncol=2)
+
+ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sentiment by Sex",x="Sentiment",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ wmns,ncol=2)
+
+ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sentiment by Kid's Shoe",x="Sentiment",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ kids,ncol=2)
+
+ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
+  geom_boxplot() +
+  labs(title="log(Resale Prices) vs Sentiment by Retro",x="Sentiment",y="log(Resale Prices)") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap( ~ retro,ncol=2)
+```
+
+EDA for log resale vs log retail
+```{r}
+# Enter your code for question 4 here
+ggplot(sneakers,aes(x=log_retail_price, y=log_resale_price)) +
+  geom_point(colour="blue4") +
+  labs(title="log(Resale Price) vs log(Retail Price)",x="log(Retail Price)",y="log(Resale Price)")
+
+ggplot(sneakers,aes(x=log_retail_price, y=log_resale_price)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_smooth(method="lm",col="red3") + theme_classic() +
+  labs(title="log(Resale Price) vs log(Retail Price) by Collab",x="log(Retail Price)",y="log(Resale Price)") +
+  facet_wrap( ~ collab,ncol=2)
+
+ggplot(sneakers,aes(x=log_retail_price, y=log_resale_price)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_smooth(method="lm",col="red3") + theme_classic() +
+  labs(title="log(Resale Price) vs log(Retail Price) by Sex",x="log(Retail Price)",y="log(Resale Price)") +
+  facet_wrap( ~ wmns,ncol=2)
+
+ggplot(sneakers,aes(x=log_retail_price, y=log_resale_price)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_smooth(method="lm",col="red3") + theme_classic() +
+  labs(title="log(Resale Price) vs log(Retail Price) by Brand",x="log(Retail Price)",y="log(Resale Price)") +
+  facet_wrap( ~ brand,ncol=4)
+
+ggplot(sneakers,aes(x=log_retail_price, y=log_resale_price)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_smooth(method="lm",col="red3") + theme_classic() +
+  labs(title="log(Resale Price) vs log(Retail Price) by Release DOW",x="log(Retail Price)",y="log(Resale Price)") +
+  facet_wrap( ~ release_dow,ncol=4)
+
+ggplot(sneakers,aes(x=log_retail_price, y=log_resale_price)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_smooth(method="lm",col="red3") + theme_classic() +
+  labs(title="log(Resale Price) vs log(Retail Price) by Release Month",x="log(Retail Price)",y="log(Resale Price)") +
+  facet_wrap( ~ release_month,ncol=4)
+
+```
+
+**Model**
+```{r}
+# model 1
+
+model1 <- lm(log_resale_price~brand+release_month+release_dow+wmns+collab+retro+kids+main_color+bin_wants+retail_price, data=sneakers)
+summary(model1)
+plot(model1)
+
+ggplot(sneakers,aes(x=retail_price, y=model1$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Retail Price",x="Retail Price",y="Residuals")
+
+ggplot(sneakers,aes(x=log(retail_price), y=model1$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Retail Price",x="Retail Price",y="Residuals")
+```
+
+```{r}
+# model 2
+
+model2 <- lm(log_resale_price~brand+release_month+release_dow+wmns+collab+retro+kids+main_color+bin_wants+log_retail_price, data=sneakers)
+summary(model2)
+plot(model2)
+
+ggplot(sneakers,aes(x=log(retail_price), y=model2$residual)) +
+geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
+labs(title="Residuals vs Retail Price",x="Retail Price",y="Residuals")
+```
+
+```{r}
+# final model (model3)
+
+final_model <- lm(log_resale_price~brand+release_month+release_dow+wmns+collab+retro+kids+main_color+bin_wants+log_retail_price+bin_wants:collab+log_retail_price:brand+collab:main_color, data=sneakers)
+summary(final_model)
+plot(final_model)
+```
+
+```{r}
+# anova test between model 2 & 3. Interactions are deemed to be significant
+anova(model2, model3)
+```
+
+```{r}
+# compare null model and full model (model 3) - aic
+NullModel <- lm(log_resale_price~collab,data=sneakers)
+FullModel <- model3
+aic_model <- step(NullModel, scope = formula(FullModel),direction="both",trace=0)
+summary(aic_model)
+```
+
+```{r}
+# compare null model and full model (model 3) - bic
+n <- nrow(sneakers)
+NullModel <- lm(log_resale_price~collab,data=sneakers)
+FullModel <- model3
+bic_model <- step(NullModel, scope = formula(FullModel),direction="both",trace=0, k=log(n))
+summary(bic_model)
+```
+
+```{r}
+# see if extra features included in aic are significant 
+anova(bic_model, aic_model)
+```
+
+```{r}
+# check if main_color interaction is significant
+anova(aic_model, model3)
+```
+
+
+```{r}
+# confidence interval at 95%
+exp(confint(model3))
+```
+
+```{r}
+# check for multi collinearity
+vif(model3)
+```
+
+```{r}
+# check for leverage points
+n <- nrow(model.matrix(model3)); p <- ncol(model.matrix(model3))
+lev_scores <- hatvalues(model3) #can also use influence(regwagecsquares)$hat
+plot(lev_scores,col=ifelse(lev_scores > (2*p/n), 'red2', 'navy'),type="h",
+ylab="Leverage score",xlab="Index",main="Leverage Scores for all observations")
+text(x=c(1:n)[lev_scores > (2*p/n)]+c(rep(2,4),-2,2),y=lev_scores[lev_scores > (2*p/n)],
+labels=c(1:n)[lev_scores > (2*p/n)])
+```
+
+
+```{r}
+# hierarchical model
+hierarchical_model1 <- lmer(log_resale_price ~ (1 | brand) +release_month+release_dow+wmns+collab+retro+kids+main_color+bin_wants+retail_price, data=sneakers)
+summary(hierarchical_model1)
+```
+
+* * *
+
+
+
