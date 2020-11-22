@@ -26,34 +26,41 @@ library(rms)
 library(lme4)
 library(pander)
 library(ggpubr)
+library(xtable)
+library(kableExtra)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(readr)
+library(tidyr)
+library(broom)
+
 ```
 
 * * *
 
 ```{r}
 # Enter your code for loading the data here
-sneakers <- read.csv('data/train.csv')
+sneakers <- read.csv('../Data/train.csv')
 ```
 
 \newpage
 ### Summary
+After analyzing and fitting data scraped from Kicks on Fire and StockX to a multi-linear regression model, this analysis answered the following inferential questions:
+  -Which of the variables appears to be the best covariate for explaining sneaker resale values?
+  -What is the likely range for the difference in resale values for collaborated and non-collaborated sneakers?
+  -Is there any evidence that the association between sentiment and resale values differ by collaborations?
+  -Are there other interesting associations with resale values that are worth mentioning and modeling?
+Ultimately, it was determined that the log of the resale price of a sneaker was the most important factor in determining the resale value of a sneaker. Additionally, 
 
 ### Introduction
+Using data scraped from a sneaker news website, Kicks on Fire, and StockX, a resale marketplace for Sneakers, the aim of this analysis is to understand what factors effect a sneaker's resale value. The dataset contains over 6000 sneakers released over the past decade with their average resale value after two plus months of initial release. Additional features such as is a sneaker a collaboration, the intended sex for the sneaker release, if a sneaker was retro, or if it is a kids shoe were engineered using regular expressions. The color of a sneaker was also assigned using a vector representation of the colorway string and getting the max cosine similiarity of that vector with common colors to determine the "main color" of a sneaker. 
 
-According to GQ, the sneaker resale market is values at around \$2 billion dollars, with the potential to reach $6 billion by 2025. However, the resale value of individual sneakers is left largely unknown due to the domain knowledge needed to purchase the right sneakers. Although the price of a sneaker varies over time, previous analysis done by StockX suggests that resale prices begin to plateau after a “month or two”. Therefore, to better understand the sneaker resale market, I will create a model to identify what drives higher resale prices and predict the resale value of future sneaker releases.
-
-The goal of this project is to understand what variables lead to an increase in resale values. For the purpose of this analysis, resale values will be considered as the price of a sneaker 2+ months after its initial release. A few inferential questions that I hope to answer with this project are:
-• What variable is the biggest contributor to higher resale values?
-• What is a likely range for the difference in resale values across different brands?
-• Do resale values vary across different brands and/or sub-brands? If so, are there certain
-brands/sub-brands that appear to be outliers?
-• Are there any interesting associations with sneaker resale values that are worth
-mentioning?
-Since I’ve scraped the data myself, no previous research has been done on this dataset. In the past, I’ve used a similar dataset (scraped from a different website) where I used logistic regression to predict if a sneaker will re-sell above retail price. However, for that analysis I didn’t do anything outside of fit a model (real analysis of the dataset and model were lacking).
+Ultimately, this analysis will answer inferential questions such as which variable is the biggest contributor to a sneaker's resale values, a likely range for differences in resale values for collab and non-collab sneakers, and potential evidence of associations, in particular, between sentiment and resale values differing by collaborations. To answer these questions posed, this analysis will the explore and transform the data, fit multi-linear regression models with appropriate features, and interpret the results.
 
 ### Exploratory Data Analysis (EDA)
-
-Before beginning the analysis, the number of null values in the dataset were counted. Although there were no null values found in the predictors, there were 181 rows in the response variable missing values. This was likely due to the scraper unable to find those sneakers on StockX. Ultimately, these rows were removed instead of imputed since they accounted for less than 3% of the entire dataset and it wasn't apparent if they weren't on StockX or if they were difficult to find when searching for them. After removing those rows, the final dataset contained 6,164 unique observations and 19 rows, albeit, 5 of them being intermediate columns or text descriptions.
+##### Data Transformation
+Before beginning the analysis, the number of null values in the dataset were counted. Although there were no null values found in the predictors, there were 181 rows in the response variable missing values. This was likely due to the scraper unable to find those sneakers on StockX. Ultimately, these rows were removed instead of imputed since they accounted for less than 3% of the entire dataset and it wasn't apparent if they weren't on StockX or they were difficult to find in the scraping process. After removing those rows, the final dataset contained 6,164 unique observations and 12 model interpretable columns.
 
 ```{r}
 # check for null values & remove them
@@ -75,11 +82,11 @@ sneakers$kids <- as.logical(sneakers$kids)
 sneakers$main_color <- factor(sneakers$main_color)
 ```
 
-Since one of the assumptions of a linear model is normality, the distribution of the response variable was plotted as a histogram. The distribution of Resale prices were heavily skewed left, and therefore multiple transformation were performed. Ultimately, the log transformation was deemed to have the best resemblance to a normal distribution. Therefore, the log transformation of the response variable was used for the rest of the analysis.
+Since one of the assumptions of a linear model is normality, the distribution of the response variable was plotted in a histogram. The distribution of Resale prices were heavily skewed left, and therefore multiple transformation were performed. Ultimately, the log transformation was deemed to have the best resemblance to a normal distribution. This transformation was used for the rest of the analysis.
 
-The "wants" column scraped from Kicks on Fire is akin to a like button, and therefore could be used as a proxy for public sentiment towards each sneaker. The distribution of "wants" was heavily skewed left with a wide range of values. Due to this, and since many sneakers had values of equal to zero, "wants" was binned into four groups roughly representing the quartiles of values in the "wants" columns. A sneaker with less than 50 "wants" was considered "Not Popular", greater than equal to 50 but less than 250 was "Somewhat Popular", greater than or equal to 250 and less than 1000 was "Very Popular", and greater than or equal to "1000" was "Extremely Popular". The figure on the left below visualizes the distribution of each category below.
+The "wants" column scraped from Kicks on Fire is akin to a like button, and therefore a proxy for public sentiment for each sneaker. The distribution of "wants" was heavily skewed left with a wide range of values. Due to this, and since many sneakers had zero "want", the column was binned into four groups roughly representing the quartiles of values in the column. A sneaker with less than 50 "wants" was considered "Not Popular", greater than equal to 50 and less than 250 was "Somewhat Popular", greater than or equal to 250 and less than 1000 was "Very Popular", and greater than or equal to "1000" was "Extremely Popular". The figure on the left below visualizes the distribution of each category.
 
-```{r fig.width=8, fig.height=4, echo=FALSE}
+```{r fig.width=8, fig.height=3.5, echo=FALSE}
 # Enter your code for question 2 here
 # ggplot(data = sneakers, aes(x=wants)) + geom_histogram() + ggtitle('Distribution of Kicks on Fire wants')
 # quantile(sneakers$wants)
@@ -91,28 +98,29 @@ sneakers$bin_wants <- factor(sneakers$bin_wants, levels = c("Not Popular", "Some
 
 fig1 <- ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
   geom_boxplot() +
-  labs(title="log(Resale Prices) vs Sneaker Color",x="Sneaker Color",y="log(Resale Prices)") + 
+  labs(title="log(Resale Prices) vs Sneaker Color",x="Sneaker Color",y="log(Resale Prices)") +
   theme_classic() + theme(legend.position="none")
 
 fig2 <- ggplot(sneakers,aes(x=bin_wants, y=log_resale_price, fill=bin_wants)) +
   geom_boxplot() +
   labs(title="log(Resale Prices) vs Wants (Sentiment) by Collaboration",x="Wants",y="log(Resale Prices)") + 
-  theme_classic() + theme(legend.position="none", axis.text.x = element_text(angle = 10))+
+  theme_classic() + theme(legend.position="none", axis.text.x = element_text(angle = 0))+
   facet_wrap( ~ collab,ncol=2)
-
+# fig2
 figroup1 <- ggarrange(fig1,fig2,
           ncol = 2, nrow = 1)
 figroup1
 ```
 
-Due to our interest in finding evidence between an association between sentiment and resale values by by whether or not a sneaker was collaborated on, the plot on the right visualizes that relationship. This revealed that there does appears to be a difference in resale values among each popularity group when collaborated on versus not. Although the resale distributions for non-collaborated sneakers look similar to the overall distribution of the data set (pictured left), the distributions for sneakers that were collaborated do not. The median resale values for "Somewhat Popular" and "Very Popular" collaborated sneakers appear to be roughly the same, as compared to before. The median value and distribution of extremely popular, collab sneakers, seem to be higher than before as well.
+##### Data Visualization
+Due to our interest in a possible association between sentiment and resale values by whether or not a sneaker was collaborated on, the plot on the right (above) visualizes that relationship. This revealed that there does appears to be a difference in resale values among each popularity group when collaborated on versus not. Although the resale distributions for non-collaborated sneakers look similar to the overall distribution of the data set (above, left), the distributions for sneakers that were collaborated do not. The median resale values for "Somewhat Popular" and "Very Popular" collaborated sneakers appear to be roughly the same, as compared to before. The median value and distribution of extremely popular, collab sneakers, seem to be higher than before as well.
 
-Two additional associations found while performing EDA can be seen in the plot below. The graph on the left shows the log of resale prices versus retail prices split by brand. From this chart, we can make out that some brands, such as Converse, Nike, Air Jordan, and Adidas, all appear to have strong positive correlations between the two variables. Meanwhile, some brands such as Puma and Asics, have relatively flat slopes with no correlation between the two variables. The second graph on the right depicts the log of resale prices versus sneaker color split by collaboration. The resale value medians and distributions for each colors vary a lot more sneakers for sneakers that are collaborated on versus not. In particular, the resale value distributions for brown, purple, red, and white sneakers seem to be a lot higher when collaborated on, while the distribution for gray sneakers seems to decrease. Both of these associations will be tested for statistical significance when modeling.
+Two additional potential associations found while performing EDA can be seen in the plots below. The graph on the left shows the log of resale prices versus retail prices split by brand. From this chart, we can make out that some brands, such as Converse, Nike, Air Jordan, and Adidas, all appear to have strong positive correlations between the two variables. Meanwhile, some brands such as Puma and Asics, have relatively flat slopes with no correlation between the two variables. The second graph on the right depicts the log of resale prices versus sneaker color split by collaboration. The resale value medians and distributions for each colors vary a lot more sneakers for sneakers that are collaborated on versus not. In particular, the resale value distributions for brown, purple, red, and white sneakers seem to be a lot higher when collaborated on, while the distribution of resale values for gray sneakers seems to decrease. All of these potential associations will be tested for statistical significance when modeling.
 
-```{r fig.width=8, fig.height=4, echo=FALSE}
+```{r fig.width=8, fig.height=3.5, echo=FALSE}
 fig3 <- ggplot(sneakers,aes(x=retail_price, y=log_resale_price)) +
   geom_point(alpha = .5,colour="blue4") +
-  geom_smooth(method="lm",col="red3") + theme_classic() +
+  geom_smooth(method="lm",col="red3") + theme_classic() + theme(legend.position="none",axis.text.x = element_text(angle = 90)) +
   labs(title="log(Resale Price) vs Retail Price by Brand",x="Retail Price",y="log(Resale Price)") +
   facet_wrap( ~ brand,ncol=4)
 
@@ -128,51 +136,50 @@ figroup2
 ```
 
 ### Model
-
 ##### Model Selection
-The final model was selecting based on our findings from the EDA, step-wise model selection, and ANOVA f-tests. When checking model diagnostic plots, it was determined that the log transformation of the retail value for each sneaker would create more randomness among the residuals in the residuals vs fitted plots and was necessary to satisfy the linearity assumption. The rest of the variables were all categorical, and therefore no other transformations to predictors were made. The final model took the form: $y_i = \beta_0 + \beta_1 Brand + \beta_2 Release Month + \beta_3 Release Day + \beta_4 Sex + \beta_5 Collab + \beta_6 Retro + \beta_7 Kids + \beta_8 Color + \beta_9 BinWants + \beta_{10} log(RetailPrice) + \beta_{11} (BinWants:Collab) + \beta_{12} (log(RetailPrice):Brand) + + \beta_{12} (Collab:Color)$
-
-The final model summary can be seen below. Since the response variable is the log of resale values, it is important to exponentiate the coefficients before interpreting the model. The table below contains the summary of the final model.
-
-The model's intercept is 15.21, which means that, if all variables are set to 0 or their respective baseline, the average resale price of a sneaker would be $15.21. The intercept is also statistically significant as its' p-value is smaller than 0.05. The adjusted r-squared value for the model is ~0.38, which means about 38% of variability in the dataset can be explained by the variables in our model.
+The final model was selecting based on our findings from the EDA, AIC and BIC step-wise model selection, and ANOVA f-tests. When checking model diagnostic plots, it was determined that the log transformation of the retail value for each sneaker would create more randomness among the residuals in the residuals vs fitted plots and was necessary to satisfy the linearity assumption. The rest of the variables were all categorical, and therefore no other transformations to predictors were made. The final model took the form: $y_i = \beta_0 + \beta_1 Brand + \beta_2 Release Month + \beta_3 Release Day + \beta_4 Sex + \beta_5 Collab + \beta_6 Retro + \beta_7 Kids + \beta_8 Color + \beta_9 BinWants + \beta_{10} log(RetailPrice) + \beta_{11} (BinWants:Collab) + \beta_{12} (log(RetailPrice):Brand) + \beta_{13} (Collab:Color)$.The model summary can be seen below. Since the response variable is the log of resale values, it is important to exponentiate the coefficients before interpreting the model.
 
 ```{r}
 # model 3 & final model
 model3 <- lm(log_resale_price~brand+release_month+release_dow+wmns+collab+retro+kids+main_color+bin_wants+log_retail_price+bin_wants:collab+log_retail_price:brand+collab:main_color, data=sneakers)
-pander(summary(model3))
+# summary(model3)
 ```
+The model's intercept is 15.21, which means that, if all variables are set to 0 or their respective baseline, the average resale price of a sneaker would be $15.21. The intercept is also statistically significant as its' p-value is smaller than 0.05. The adjusted r-squared value for the model is ~0.38, which means about 38% of variability in the dataset can be explained by the variables in our model.
 
-From the table above, we can determine that the log of the sneaker's retail price is the best covariate for explaining sneaker resale values. This is because predictors with higher absolute t-values indicate greater evidence against the null hypothesis and importance in predicting the response variable. The coefficient of this covariate indicates that for every additional increase in the log of the retail price, the resale value, on average, for a sneaker increases by $1.48, holding all other variables constant.
+We can also determine that the log of the sneaker's retail price is the best covariate for explaining sneaker resale values. This is because predictors with higher absolute t-values indicate greater evidence against the null hypothesis and importance in predicting the response variable. The coefficient of this covariate indicates that for every additional increase in the log of the retail price, the resale value, on average, for a sneaker increases by $1.48, holding all other variables constant.
 
 For this analysis, only variables that had p-values lower than the 0.05 level were deemed to be statistically significant. Therefore, brand, release month, release day, retro, "wants" binned, log of retail price, the interaction between brand and the log of retail price, the interaction between collab and "wants" binned, and the interaction between collab and main color were all statistically significant variables.
 
-Additionally, since the interaction between collaborations and "wants" binned was statistically significant, we know that there is evidence of an association between sentiment and resale values different. For the interaction, non-collaborate sneakers and "Not Popular" were the model's baseline. The statistically significant effects of this interaction can be interpreted as, if all other variables are held constant, on average, for sneakers that were collaborated on and were "Somewhat Popular", the average resale price of a sneaker increased by $1.13 compared to the model baseline. For the same conditions, on average, sneakers that were collaborated on and were "Extremely Popular", the average resale price of a sneaker increased by $1.69 compared to the model baseline.
-
-Next, a likely range for the difference in sneaker resale values for sneakers that were non-collab and collab can be found by getting the 95% confidence interval of the collab variable in the final model, which can be seen below. Based on the 95% confidence interval for the variable collab, if all other variables are held constant, the average resale price of a collab sneaker increases by $0.96 to $1.20 compared non-collab sneakers. It is worth noting that collab was not found to be significant on its own, but was significant in its interaction between sneaker sentiment and color.
+Additionally, since the interaction between collaborations and "wants" binned was statistically significant, we know that there is evidence of an association between sentiment and resale values different. For the interaction, non-collaborated sneakers and "Not Popular" were the model's baseline. The statistically significant effects of this interaction can be interpreted as, if all other variables are held constant, on average, for sneakers that were collaborated on and were "Somewhat Popular", the average resale price of a sneaker increased by \$1.13 compared to the model baseline. For the same conditions, on average, sneakers that were collaborated on and were "Extremely Popular", the average resale price of a sneaker increased by $1.69 compared to the model baseline. Although not statistically significant on the 0.05 level, holding all variables constant, sneakers that were collaborated on and were "Very Popular", the average resale price of a sneaker increased by \$1.12 compared to the model baseline.
 
 ```{r}
 # confidence interval at 95%
 pander(exp(confint(model3,'collabTRUE',level=0.95)))
 ```
-
-##### Model Assesment
-
-The model diagnostics were the plotted below. Looking at the residuals vs. fitted plot, the model does seem to satisfy the independence and equal variance assumptions as the data points are randomly scattered throughout the plot and the red line indicating trends is straight.
-
-The Normal Q-Q plot indicates whether or not the assumption of Normality is violated by the model. Looking at the plot, the points roughly lie on the dashed line drawn, until the right most extremity. This is likely due to the long right tail of the response variable distribution. Therefore, the normality assumption does appear to be satisfied.
-
-Potential outliers, leverage points, or highly influential points can all be identified using the Residuals vs. Leverage plot below. From the Cook's distance lines, there are no highly influential data points as there are not values with a Cook's distance value greater than 0.5 or 1. This meant no data points were highly influential and did not need to be removed from our analysis. High leverage points were calculated using the formula $2*(p+1)/n$. From this threshold there were quite a few high leverage points. Outliers could also be identified from the Residuals vs. Leverage plot below by looking at the y-values of the data points in the graph. The distribution of data points appear to follow a normal distribution and can be found between 3 and -3 standard deviations. However, there are quite a few data points that are outside those metrics.
+Next, a likely range for the difference in sneaker resale values for collab and non-collab sneakers can be found by getting the 95% confidence interval of the collab variable for the final model, which can be seen above. Based on the 95% confidence interval for the variable collab, if all other variables are held constant, the average resale price of a collab sneaker increases by \$0.96 to $1.20 compared non-collab sneakers. It is worth noting that collab was not found to be significant on its own, but was significant in its interaction between sneaker sentiment and color.
 
 ```{r}
+model3 %>%
+  tidy() %>%
+  kable() %>%
+  kable_styling(font_size = 5)
+# kable(xtable(summary(model3)))
+```
+
+##### Model Assesment
+The model diagnostics are shown in the graph below. Looking at the residuals vs. fitted plot, the model does seem to satisfy the independence and equal variance assumptions as the data points are randomly scattered throughout the plot and the red line indicating trends is straight. When looking at the Residual vs. Log(Retail), the linearity assumption doesn't appear to be violated as the as the plot shows the data points appear to be randomly distributed across the plot as well. Additionally, the Normal Q-Q plot indicates whether or not the assumption of Normality is violated by the model. Looking at the plot, the points roughly lie on the dashed line drawn, until the right most extremity. This is likely due to the long right tail of the response variable distribution. Therefore, the normality assumption does appear to be satisfied as well.
+
+Potential outliers, leverage points, or highly influential points can all be identified using the Residuals vs. Leverage plot below. From the Cook's distance lines, there are no highly influential data points as there are not values with a Cook's distance value greater than 0.5 or 1. This meant no data points were highly influential and did not need to be removed from our analysis. High leverage points were calculated using the formula $2*(p+1)/n$. Using this threshold, quite a few high leverage points were found. Outliers could also be identified from the Residuals vs. Leverage plot below by looking at the y-values of the data points in the graph. The distribution of data points appear to follow a normal distribution and can be found between 3 and -3 standard deviations. However, there are quite a few data points that are outside those metrics.
+
+```{r fig.width=6, fig.height=4.5, echo=FALSE}
 par(mfrow=c(2,2))
 plot(model3)
 # ggplot(sneakers,aes(x=log(retail_price), y=model3$residual)) +
 # geom_point(alpha = .7) + geom_hline(yintercept=0,col="red3") + theme_classic() +
 # labs(title="Residuals vs Retail Price",x="Retail Price",y="Residuals")
 ```
-Next, we will look at the variance inflation factor to measure how much the multicollinearity between a variable and other variables in the model inflate the variance of the regression coefficient for that variable. All of the vif scores for the variables in the model are less than 1.4 and we can safely say they're not correlated with one another.
 
-Finally, the Variance Inflation Factor (VIF) score for each variable in the model was checked to determine how much multicollinearity between the variables in the model was inflating the variance of the regression coefficient for each variable. However, since the only continuous covariate was the log of the retail price, only that VIF score was worth noting. The log of the retail price had a VIF score of 3.31, and therefore we can safely say it's not correlated with other variables.
+Finally, the Variance Inflation Factor (VIF) score for each variable in the model was calculated to determine how much multicollinearity between the variables in the model was inflating the variance of the regression coefficient for each variable. However, since the only continuous variable was the log of the retail price, that was the only VIF score worth noting. The log of the retail price had a VIF score of 3.31, and therefore we can safely say it's not correlated with other variables because it's lower than the high correlation threshold of 10.
 
 ```{r}
 # check for multi collinearity
@@ -180,7 +187,9 @@ Finally, the Variance Inflation Factor (VIF) score for each variable in the mode
 ```
 
 ### Conclusion
+In conclusion, our analysis determined that the best covariate for explaining sneaker resale values was the log of the resale price. In general, the log of the resale price was positively correlated with resale values. Additionally, there was an association found between sentiment and resale values differing by collaborations. As discussed earlier, sneakers that were collaborated on and were "Somewhat Popular" or "Extremely Popular" usually had higher resale values than "Not Popular" and non-collab sneakers. There were also associations found between the log of the resale price and resale values differing by Brand, as well as the main color and resale values of sneakers differing by collaborations. Although collaborations were not found to be statistically significant, the likely difference in resale values for collaborated and non-collab sneakers was found to be between an increase in \$0.96 to $1.20 for collab sneakers versus not.
 
+Overall, there were a few limitations of this analysis. First, the dataset built from Kicks on Fire is not an exhaustive list of every sneaker ever released and is general biased towards talking about more "trendy" sneakers. Therefore, some brands may appear to only have sneakers with high resale values, such as Converse. Second, determining the main color for a sneaker is tough job for a human to label, let alone a computer. Although the labels seemed generally accurate, the main color of a sneaker is hard to quantify and up for debate. Third, although the response variable is an average resale price of sneakers, According to StockX there has been found to be a range of average prices between different shoe sizes of the same sneaker, which is something the model doesn't take into account. 
 
 ### Appendix
 
